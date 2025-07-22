@@ -56,7 +56,7 @@ class NoteVaultApp extends StatelessWidget {
       ),
       useMaterial3: true,
       appBarTheme: const AppBarTheme(elevation: 0, centerTitle: true),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 2,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
@@ -77,7 +77,7 @@ class NoteVaultApp extends StatelessWidget {
         brightness: Brightness.dark,
       ),
       appBarTheme: const AppBarTheme(elevation: 0, centerTitle: true),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 2,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
