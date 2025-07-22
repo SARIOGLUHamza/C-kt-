@@ -547,6 +547,7 @@ class _MobilePdfDrawerState extends State<MobilePdfDrawer> {
                 child: Container(color: Colors.transparent),
               ),
             ),
+
           // Notları göster
           Positioned.fill(
             child: IgnorePointer(

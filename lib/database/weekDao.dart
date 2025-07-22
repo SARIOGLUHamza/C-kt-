@@ -70,4 +70,25 @@ class WeekDao {
     );
     return Sqflite.firstIntValue(result) ?? 0;
   }
+
+  /// Eski kayıtların content alanını düzeltir: Eğer content boşsa, '[]' yapar
+  Future<void> fixEmptyContentFields() async {
+    final db = await DatabaseHelper().database;
+    // Boş veya sadece boşluk olan content'leri bul
+    final List<Map<String, dynamic>> maps = await db.query(
+      'weeks',
+      where: "content IS NULL OR TRIM(content) = ''",
+    );
+    for (final map in maps) {
+      final id = map['id'];
+      await db.update(
+        'weeks',
+        {'content': '[]'},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      print('Week kaydı düzeltildi (id: $id)');
+    }
+    print('Tüm boş content alanları güncellendi.');
+  }
 }

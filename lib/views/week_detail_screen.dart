@@ -824,9 +824,13 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
   // _protectEmbeds fonksiyonu ve listener'ı kaldırıldı
 
   void _initializeQuillController() {
-    final doc = quill.Document.fromJson(
-      widget.week.content.isEmpty ? [] : jsonDecode(widget.week.content),
-    );
+    // Eğer içerik boşsa, Quill editörü için tek satırlık geçerli bir Delta ile başlatıyoruz. Bu, Quill'in beklediği minimum yapıdır ve hata alınmaz.
+    const bosDelta = '[{"insert":"\\n"}]';
+    final json =
+        (widget.week.content == null || widget.week.content.trim().isEmpty)
+            ? jsonDecode(bosDelta)
+            : jsonDecode(widget.week.content);
+    final doc = quill.Document.fromJson(json);
     _quillController = quill.QuillController(
       document: doc,
       selection: const TextSelection.collapsed(offset: 0),
@@ -1549,7 +1553,8 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
                 child: quill.QuillEditor.basic(
                   controller: _quillController,
                   config: quill.QuillEditorConfig(
-                    placeholder: "",
+                    // Editör boşken kullanıcıya gösterilecek mesaj
+                    placeholder: "Notlarınızı yazmaya başlayın...",
                     padding: EdgeInsets.all(16),
                     embedBuilders: [FileEmbedBuilder()],
                   ),
