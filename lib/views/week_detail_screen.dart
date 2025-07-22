@@ -44,20 +44,13 @@ class FileEmbedBuilder extends quill.EmbedBuilder {
   String get key => 'file';
 
   @override
-  Widget build(
-    BuildContext context,
-    quill.QuillController controller,
-    quill.Embed node,
-    bool readOnly,
-    bool inline,
-    TextStyle textStyle,
-  ) {
-    final data = jsonDecode(node.value.data) as Map<String, dynamic>;
+  Widget build(BuildContext context, quill.EmbedContext embedContext) {
+    final data =
+        jsonDecode(embedContext.node.value.data) as Map<String, dynamic>;
     final fileName = data['fileName'] as String;
     final filePath = data['filePath'] as String;
     final fileType = data['fileType'] as String;
 
-    // WeekDetailScreen'e erişmek için context'ten widget.week alınır
     final weekState = context.findAncestorStateOfType<_WeekDetailScreenState>();
     final week = weekState?.widget.week;
     final media = week?.mediaFiles.firstWhereOrNull(
@@ -65,9 +58,12 @@ class FileEmbedBuilder extends quill.EmbedBuilder {
     );
 
     if (media != null && week != null) {
-      return FileWidget(media: media, week: week);
+      return FileWidget(
+        key: ValueKey('quill_${media.id}'), // sabit ve benzersiz key
+        media: media,
+        week: week,
+      );
     } else {
-      // Fallback: dosya bulunamazsa hiçbir şey gösterme
       return const SizedBox.shrink();
     }
   }
@@ -77,8 +73,14 @@ class FileEmbedBuilder extends quill.EmbedBuilder {
 class FileWidget extends StatelessWidget {
   final MediaFile media;
   final Week week;
+  final Future<void> Function(MediaFile media)? onDeleteMedia;
 
-  const FileWidget({super.key, required this.media, required this.week});
+  const FileWidget({
+    super.key,
+    required this.media,
+    required this.week,
+    this.onDeleteMedia,
+  });
 
   IconData get fileIcon {
     switch (media.fileType) {
@@ -247,41 +249,11 @@ class FileWidget extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.delete, color: Colors.red),
                   title: const Text('Sil'),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(context);
-                    // Silme işlemi için onay ve controller çağrısı
-                    showDialog(
-                      context: context,
-                      builder:
-                          (ctx) => AlertDialog(
-                            title: const Text('Dosyayı Sil'),
-                            content: const Text(
-                              'Bu dosyayı silmek istediğine emin misin?',
-                            ),
-                            actions: [
-                              TextButton(
-                                child: const Text('İptal'),
-                                onPressed: () => Navigator.pop(ctx),
-                              ),
-                              TextButton(
-                                child: const Text('Sil'),
-                                onPressed: () async {
-                                  await Get.find<WeekController>()
-                                      .deleteMediaFile(media, week);
-                                  Navigator.pop(ctx);
-                                  Get.snackbar(
-                                    'Başarılı',
-                                    'Dosya silindi',
-                                    snackPosition: SnackPosition.BOTTOM,
-                                    backgroundColor: Colors.green,
-                                    colorText: Colors.white,
-                                  );
-                                  print(week.mediaFiles);
-                                },
-                              ),
-                            ],
-                          ),
-                    );
+                    if (onDeleteMedia != null) {
+                      await onDeleteMedia!(media);
+                    }
                   },
                 ),
               ],
@@ -836,35 +808,46 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
 
   // State değişkeni ekle
   List<String> _lastEmbedFilePaths = [];
+  bool _allowEmbedDelete =
+      false; // Sadece özel butonla silmeye izin vermek için flag
 
   @override
   void initState() {
     super.initState();
     _initializeQuillController();
-    _quillController.addListener(_protectEmbeds);
+    _quillController.addListener(_autoSaveContent);
     _loadMediaFiles();
     _initializeRecorder();
     _initializeCamera();
   }
 
-  void _initializeQuillController() {
-    final content = widget.week.content;
-    if (content.isNotEmpty) {
-      try {
-        final doc = quill.Document.fromJson(jsonDecode(content));
-        _quillController = quill.QuillController(
-          document: doc,
-          selection: const TextSelection.collapsed(offset: 0),
-        );
-      } catch (e) {
-        // Hatalı içerik varsa temizle!
-        widget.week.content = '';
-        _quillController = quill.QuillController.basic();
-      }
-    } else {
-      _quillController = quill.QuillController.basic();
-    }
+  // _protectEmbeds fonksiyonu ve listener'ı kaldırıldı
 
+  void _initializeQuillController() {
+    final doc = quill.Document.fromJson(
+      widget.week.content.isEmpty ? [] : jsonDecode(widget.week.content),
+    );
+    _quillController = quill.QuillController(
+      document: doc,
+      selection: const TextSelection.collapsed(offset: 0),
+      onReplaceText: (int index, int len, Object? data) {
+        // Silmeye engel
+        if ((data == null || data == '') && len > 0) {
+          final delta = _quillController.document.toDelta();
+          int offset = 0;
+          for (final op in delta.toList()) {
+            final opLen = op.length as int;
+            if (offset <= index && index < offset + opLen) {
+              if (op.isInsert && op.data is Map) {
+                return false; // embed var, silme
+              }
+            }
+            offset += opLen;
+          }
+        }
+        return true;
+      },
+    );
     _quillController.addListener(_autoSaveContent);
   }
 
@@ -898,44 +881,7 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     }
   }
 
-  void _protectEmbeds() {
-    final delta = _quillController.document.toDelta();
-    final ops = delta.toList();
-
-    // Şu anki embed filePath listesini çıkar
-    final currentEmbeds = <String>[];
-    for (final op in ops) {
-      if (op.isInsert && op.data is Map) {
-        final dataMap = op.data as Map;
-        for (final key in dataMap.keys) {
-          final embedDataRaw = dataMap[key];
-          if (embedDataRaw == null) continue;
-          final embedData =
-              embedDataRaw is String ? jsonDecode(embedDataRaw) : embedDataRaw;
-          if (embedData['filePath'] != null) {
-            currentEmbeds.add(embedData['filePath']);
-          }
-        }
-      }
-    }
-
-    // Silinen embed var mı?
-    for (final filePath in _lastEmbedFilePaths) {
-      if (!currentEmbeds.contains(filePath)) {
-        // Silinmiş embed'i tekrar ekle
-        final media = widget.week.mediaFiles.firstWhereOrNull(
-          (m) => m.filePath == filePath,
-        );
-        if (media != null) {
-          _insertFileEmbed(media.fileName, media.filePath, media.fileType);
-          Get.snackbar('Uyarı', 'Bu dosya metinden silinemez!');
-        }
-      }
-    }
-
-    // Son embed listesini güncelle
-    _lastEmbedFilePaths = currentEmbeds;
-  }
+  // _protectEmbeds fonksiyonunu tamamen kaldırıyorum.
 
   Future<void> _loadMediaFiles() async {
     if (widget.week.id != null) {
@@ -1272,6 +1218,7 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
   }
 
   void _removeFileEmbedFromQuill(String filePath) {
+    _allowEmbedDelete = true;
     final doc = _quillController.document;
     final delta = doc.toDelta();
     final ops = delta.toList();
@@ -1289,12 +1236,23 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
           final embedFileName = embedFilePath.split('/').last;
           if (embedFilePath == filePath || embedFileName == targetName) {
             doc.delete(offset, 1);
+            // _lastEmbedFilePaths listesinden de çıkar
+            _lastEmbedFilePaths.remove(filePath);
+            _allowEmbedDelete = false;
             return;
           }
         }
       }
       offset += op.length as int;
     }
+    _allowEmbedDelete = false;
+  }
+
+  Future<void> _deleteMedia(MediaFile media) async {
+    _removeFileEmbedFromQuill(media.filePath);
+    await Get.find<WeekController>().deleteMediaFile(media, widget.week);
+    await _loadMediaFiles();
+    setState(() {});
   }
 
   Widget _buildCompactToolbarButton({
@@ -1330,12 +1288,18 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
   // Medya dosyalarını listele (örnek bir yerde, uygun yere ekle)
   Widget _buildMediaFileList() {
     return ListView.builder(
+      key: const PageStorageKey('media_list'), // Listeye benzersiz key
       shrinkWrap: true,
       physics: NeverScrollableScrollPhysics(),
       itemCount: widget.week.mediaFiles.length,
       itemBuilder: (context, index) {
         final media = widget.week.mediaFiles[index];
-        return FileWidget(media: media, week: widget.week);
+        return FileWidget(
+          key: ValueKey('list_${media.id}'), // sabit ve benzersiz key
+          media: media,
+          week: widget.week,
+          onDeleteMedia: _deleteMedia,
+        );
       },
     );
   }
@@ -1584,11 +1548,10 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
                 borderRadius: BorderRadius.circular(12),
                 child: quill.QuillEditor.basic(
                   controller: _quillController,
-                  focusNode: _focusNode,
-                  configurations: quill.QuillEditorConfigurations(
-                    padding: const EdgeInsets.all(20),
+                  config: quill.QuillEditorConfig(
                     placeholder: "",
-                    embedBuilders: [FileEmbedBuilder()], // Custom embed builder
+                    padding: EdgeInsets.all(16),
+                    embedBuilders: [FileEmbedBuilder()],
                   ),
                 ),
               ),

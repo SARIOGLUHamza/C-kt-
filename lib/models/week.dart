@@ -10,20 +10,21 @@ class MediaFile {
 
   MediaFile({
     this.id,
-    this.weekId,
+    required this.weekId,
     required this.fileName,
     required this.filePath,
     required this.fileType,
     int? createdAt,
   }) : createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
 
-  MediaFile.fromMap(Map<String, dynamic> map)
-    : id = map['id'],
-      weekId = map['week_id'],
-      fileName = map['file_name'],
-      filePath = map['file_path'],
-      fileType = map['file_type'],
-      createdAt = map['created_at'];
+  factory MediaFile.fromMap(Map<String, dynamic> map) => MediaFile(
+    id: map['id'],
+    weekId: map['weekId'] ?? map['week_id'],
+    fileName: map['fileName'] ?? map['file_name'] ?? '',
+    filePath: map['filePath'] ?? map['file_path'] ?? '',
+    fileType: map['fileType'] ?? map['file_type'] ?? '',
+    createdAt: map['createdAt'] ?? map['created_at'],
+  );
 
   Map<String, dynamic> toMap() => {
     'id': id,
