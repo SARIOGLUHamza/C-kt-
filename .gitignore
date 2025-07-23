@@ -75,3 +75,10 @@ coverage/
 !**/ios/**/default.perspectivev3
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
 !/dev/ci/**/Gemfile.lock
+
+# Android keystore ve anahtar dosyaları
+android/key.properties
+android/*.jks
+*.jks
+# Eğer keystore dosyan farklı bir klasördeyse, tam yolunu da ekleyebilirsin
+# C:/Users/Hamza/Desktop/staj_uygulama - Kopya/deneme/android/my-release-key.jks
