@@ -25,13 +25,7 @@ Dijital Defter, notlarınızı dijital ortamda güvenli ve pratik şekilde tutma
    flutter run
    ```
 
-## Play Store'a Yükleme
-1. Release build oluşturun:
-   ```sh
-   flutter build appbundle --release
-   ```
-2. Oluşan `.aab` dosyasını Play Console'a yükleyin.
-3. Gerekli ikon, ekran görüntüsü ve gizlilik politikası linkini ekleyin.
+
 
 ## Gizlilik Politikası
 - [PRIVACY_POLICY.md](./PRIVACY_POLICY.md)
