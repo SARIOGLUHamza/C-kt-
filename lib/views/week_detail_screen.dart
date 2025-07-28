@@ -24,6 +24,7 @@ import 'package:deneme/database/database_helper.dart';
 import 'package:deneme/views/mobile_pdf_drawer.dart';
 import 'package:deneme/controllers/week_controler.dart';
 import 'package:collection/collection.dart'; // Added for firstWhereOrNull
+import 'package:image/image.dart' as img;
 
 // Custom File Embed için özel sınıflar
 class FileBlockEmbed extends quill.CustomBlockEmbed {
@@ -62,6 +63,7 @@ class FileEmbedBuilder extends quill.EmbedBuilder {
         key: ValueKey('quill_${media.id}'), // sabit ve benzersiz key
         media: media,
         week: week,
+        onDeleteMedia: weekState?._deleteMedia,
       );
     } else {
       return const SizedBox.shrink();
@@ -249,10 +251,10 @@ class FileWidget extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.delete, color: Colors.red),
                   title: const Text('Sil'),
-                  onTap: () async {
+                  onTap: () {
                     Navigator.pop(context);
                     if (onDeleteMedia != null) {
-                      await onDeleteMedia!(media);
+                      onDeleteMedia!(media);
                     }
                   },
                 ),
@@ -740,37 +742,9 @@ class AnnotatedImageWidget extends StatefulWidget {
 }
 
 class _AnnotatedImageWidgetState extends State<AnnotatedImageWidget> {
-  ui.Image? _drawing;
-  @override
-  void initState() {
-    super.initState();
-    _loadDrawing();
-  }
-
-  Future<void> _loadDrawing() async {
-    final appDir = await getApplicationDocumentsDirectory();
-    final drawFile = File('${appDir.path}/draw_${widget.fileName}.png');
-    if (await drawFile.exists()) {
-      final bytes = await drawFile.readAsBytes();
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      setState(() {
-        _drawing = frame.image;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Image.file(File(widget.filePath), fit: BoxFit.cover),
-        if (_drawing != null)
-          Positioned.fill(
-            child: CustomPaint(painter: _BackgroundDrawingPainter(_drawing!)),
-          ),
-      ],
-    );
+    return Image.file(File(widget.filePath), fit: BoxFit.contain);
   }
 }
 
@@ -784,6 +758,7 @@ class WeekDetailScreen extends StatefulWidget {
 }
 
 class _WeekDetailScreenState extends State<WeekDetailScreen> {
+  final GlobalKey _signatureKey = GlobalKey();
   late quill.QuillController _quillController;
   final MediaFileDao _mediaFileDao = MediaFileDao();
   final FocusNode _focusNode = FocusNode();
@@ -798,10 +773,11 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
   SignatureController _signatureController = SignatureController(
     penStrokeWidth: 2,
     penColor: Colors.black,
-    exportBackgroundColor: Colors.white,
   );
+  EraserSignatureController? _eraserController;
   bool _isHandwritingMode = false;
-
+  bool _isEraserMode = false; // Silgi modu için yeni değişken
+  double _eraserSize = 20.0; // Silgi boyutu
   // Kamera sistemi
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
@@ -1055,6 +1031,71 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     }
   }
 
+  // Renk seçici dialog
+  void _showColorPicker() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Metin Rengi Seç'),
+            content: Container(
+              width: 300,
+              height: 200,
+              child: GridView.count(
+                crossAxisCount: 6,
+                children:
+                    [
+                          Colors.black,
+                          Colors.red,
+                          Colors.orange,
+                          Colors.yellow,
+                          Colors.green,
+                          Colors.blue,
+                          Colors.purple,
+                          Colors.pink,
+                          Colors.brown,
+                          Colors.grey,
+                          Colors.teal,
+                          Colors.indigo,
+                        ]
+                        .map(
+                          (color) => GestureDetector(
+                            onTap: () {
+                              // Basit renk ayarlama - hex değeri kullan
+                              final hexColor =
+                                  '#${color.value.toRadixString(16).padLeft(8, '0')}';
+                              _quillController.formatSelection(
+                                quill.Attribute.clone(
+                                  quill.Attribute.color,
+                                  hexColor,
+                                ),
+                              );
+                              Navigator.pop(context);
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: color,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: const SizedBox.shrink(),
+                            ),
+                          ),
+                        )
+                        .toList(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('İptal'),
+              ),
+            ],
+          ),
+    );
+  }
+
   // El yazısı dialog ve embed
   void _toggleHandwritingMode() {
     setState(() {
@@ -1066,6 +1107,37 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     }
   }
 
+  // Silgi modunu aç/kapat
+  void _toggleEraserMode() {
+    setState(() {
+      _isEraserMode = !_isEraserMode;
+      if (_isEraserMode) {
+        // Silgi modunda özel silgi controller'ını kullan
+        _eraserController = EraserSignatureController(
+          penStrokeWidth: _eraserSize,
+          penColor: Colors.white,
+        );
+      } else {
+        // Normal modda normal controller'ı kullan
+        _eraserController = null;
+      }
+    });
+  }
+
+  // Silgi boyutunu ayarla
+  void _setEraserSize(double size) {
+    setState(() {
+      _eraserSize = size;
+      if (_isEraserMode && _eraserController != null) {
+        // Yeni controller oluştur çünkü penStrokeWidth final
+        _eraserController = EraserSignatureController(
+          penStrokeWidth: _eraserSize,
+          penColor: Colors.white,
+        );
+      }
+    });
+  }
+
   void _showHandwritingDialog() {
     showDialog(
       context: context,
@@ -1073,15 +1145,59 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
           (context) => AlertDialog(
             title: const Text('El Yazısı Notu'),
             content: Container(
-              width: MediaQuery.of(context).size.width * 0.8,
-              height: MediaQuery.of(context).size.height * 0.4,
+              width: MediaQuery.of(context).size.width,
+              height: MediaQuery.of(context).size.height,
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.grey),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Signature(
-                controller: _signatureController,
-                backgroundColor: Colors.white,
+              child: Column(
+                children: [
+                  // Toolbar
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(8),
+                        topRight: Radius.circular(8),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Spacer(),
+                        // Geri al butonu
+                        IconButton(
+                          onPressed: () {
+                            if (_signatureController.canUndo) {
+                              _signatureController.undo();
+                            }
+                          },
+                          icon: const Icon(Icons.undo),
+                          tooltip: 'Geri Al',
+                        ),
+                        // İleri al butonu
+                        IconButton(
+                          onPressed: () {
+                            if (_signatureController.canRedo) {
+                              _signatureController.redo();
+                            }
+                          },
+                          icon: const Icon(Icons.redo),
+                          tooltip: 'İleri Al',
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Signature canvas
+                  Expanded(
+                    child: Signature(
+                      key: _signatureKey,
+                      controller: _signatureController,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                ],
               ),
             ),
             actions: [
@@ -1090,10 +1206,6 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
                   _signatureController.clear();
                 },
                 child: const Text('Temizle'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('İptal'),
               ),
               ElevatedButton(
                 onPressed: () async {
@@ -1160,16 +1272,25 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
   }
 
   Future<void> _saveAndEmbedHandwriting() async {
-    if (_signatureController.isEmpty) return;
+    final controller = _isEraserMode ? _eraserController : _signatureController;
+    if (controller?.isEmpty == true) return;
 
-    final signature = await _signatureController.toPngBytes();
+    final signature = await controller!.toPngBytes(
+      width: 400,
+      height: 200,
+    ); // Kalite artırıldı
     if (signature == null) return;
+
+    // PNG'yi 180 derece döndür
+    final originalImage = img.decodeImage(signature);
+    final rotatedImage = img.copyRotate(originalImage!, angle: 180);
+    final rotatedPng = img.encodePng(rotatedImage);
 
     final appDir = await getApplicationDocumentsDirectory();
     final fileName = 'handwriting_${DateTime.now().millisecondsSinceEpoch}.png';
     final file = File('${appDir.path}/$fileName');
 
-    await file.writeAsBytes(signature);
+    await file.writeAsBytes(rotatedPng);
 
     final mediaFile = MediaFile(
       weekId: widget.week.id,
@@ -1184,7 +1305,7 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     // Tıklanabilir el yazısı widget'ı ekle
     _insertFileEmbed(fileName, file.path, 'handwriting');
 
-    _signatureController.clear();
+    controller.clear();
 
     Get.snackbar(
       'Başarılı',
@@ -1253,9 +1374,35 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
   }
 
   Future<void> _deleteMedia(MediaFile media) async {
+    // 1) Kullanıcıdan onay al
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Dosyayı sil?'),
+            content: Text('"${media.fileName}" silinecek. Emin misin?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('İptal'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Sil'),
+              ),
+            ],
+          ),
+    );
+
+    if (shouldDelete != true) return;
+
+    // 2) Quill embed’i sil
     _removeFileEmbedFromQuill(media.filePath);
+
+    // 3) Veritabanından ve listeden sil
     await Get.find<WeekController>().deleteMediaFile(media, widget.week);
     await _loadMediaFiles();
+
     setState(() {});
   }
 
@@ -1265,6 +1412,7 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     String? tooltip,
     Color? iconColor,
     Color? backgroundColor,
+    bool isSelected = false,
   }) {
     return Tooltip(
       message: tooltip ?? '',
@@ -1273,15 +1421,24 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
         height: 40,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         decoration: BoxDecoration(
-          color: backgroundColor,
+          color: isSelected ? Colors.blue.shade100 : backgroundColor,
           borderRadius: BorderRadius.circular(8),
-          border:
-              backgroundColor != null
-                  ? Border.all(color: iconColor ?? Colors.grey, width: 1)
-                  : null,
+          border: Border.all(
+            color:
+                isSelected
+                    ? Colors.blue.shade300
+                    : (backgroundColor != null
+                        ? (iconColor ?? Colors.grey)
+                        : Colors.transparent),
+            width: isSelected ? 2 : 1,
+          ),
         ),
         child: IconButton(
-          icon: Icon(icon, color: iconColor, size: 20),
+          icon: Icon(
+            icon,
+            color: isSelected ? Colors.blue.shade700 : iconColor,
+            size: 20,
+          ),
           onPressed: onPressed,
           padding: EdgeInsets.zero,
         ),
@@ -1306,62 +1463,6 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
         );
       },
     );
-  }
-
-  void _confirmDeleteMediaFile(MediaFile media) {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: Text('Dosyayı Sil'),
-            content: Text('Bu dosyayı silmek istediğine emin misin?'),
-            actions: [
-              TextButton(
-                child: Text('İptal'),
-                onPressed: () => Navigator.pop(context),
-              ),
-              TextButton(
-                child: Text('Sil'),
-                onPressed: () async {
-                  _removeFileEmbedFromQuill(media.filePath); // Önce embed'i sil
-                  await Get.find<WeekController>().deleteMediaFile(
-                    media,
-                    widget.week,
-                  ); // Sonra veritabanı ve mediaFiles
-                  setState(() {});
-                  Get.snackbar(
-                    'Başarılı',
-                    'Dosya silindi',
-                    snackPosition: SnackPosition.BOTTOM,
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
-                  );
-                  Navigator.pop(context);
-                },
-              ),
-            ],
-          ),
-    );
-  }
-
-  Future<bool> _askBeforeDelete(String fileName) async {
-    return await Get.dialog<bool>(
-          AlertDialog(
-            title: Text('“$fileName” silinsin mi?'),
-            content: const Text('Bu işlem geri alınamaz.'),
-            actions: [
-              TextButton(
-                onPressed: () => Get.back(result: false),
-                child: const Text('İptal'),
-              ),
-              TextButton(
-                onPressed: () => Get.back(result: true),
-                child: const Text('Sil'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
   }
 
   @override
@@ -1416,6 +1517,11 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
               child: Row(
                 children: [
                   // Temel formatlar
+                  _buildCompactToolbarButton(
+                    icon: Icons.color_lens_sharp,
+                    onPressed: _showColorPicker,
+                    tooltip: 'Renk',
+                  ),
                   _buildCompactToolbarButton(
                     icon: Icons.format_bold,
                     onPressed:
@@ -1574,6 +1680,7 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     _focusNode.dispose();
     _recorder?.closeRecorder();
     _signatureController.dispose();
+    _eraserController?.dispose();
     _cameraController?.dispose();
     super.dispose();
   }
@@ -1601,6 +1708,174 @@ Rect calculateImageRect({
     offsetY = 0;
   }
   return Rect.fromLTWH(offsetX, offsetY, shownWidth, shownHeight);
+}
+
+// Özel Silgi Controller sınıfı
+class EraserSignatureController extends SignatureController {
+  EraserSignatureController({
+    super.penColor = Colors.white,
+    super.penStrokeWidth = 20.0,
+    super.strokeCap = StrokeCap.round,
+    super.strokeJoin = StrokeJoin.round,
+  });
+
+  // Silgi modunda çizilen noktaları takip etmek için
+  List<Point> _erasedPoints = [];
+
+  // Silgi ile silinen alanları takip etmek için
+  List<Rect> _erasedAreas = [];
+
+  // Silgi ile silinen noktaları kaydet
+  void addErasedPoint(Point point) {
+    _erasedPoints.add(point);
+
+    // Silgi alanını hesapla
+    final rect = Rect.fromCenter(
+      center: point.offset,
+      width: penStrokeWidth,
+      height: penStrokeWidth,
+    );
+    _erasedAreas.add(rect);
+
+    // Bu alandaki çizim noktalarını sil
+    _removePointsInArea(rect);
+
+    notifyListeners();
+  }
+
+  // Belirli bir alandaki noktaları sil
+  void _removePointsInArea(Rect area) {
+    value.removeWhere((point) {
+      return area.contains(point.offset);
+    });
+  }
+
+  // Silgi ile silinen noktaları temizle
+  void clearErasedPoints() {
+    _erasedPoints.clear();
+    _erasedAreas.clear();
+    notifyListeners();
+  }
+
+  // Silgi ile silinen noktaları al
+  List<Point> get erasedPoints => _erasedPoints;
+
+  // Silgi ile silinen alanları al
+  List<Rect> get erasedAreas => _erasedAreas;
+
+  // Silgi ile silinen alanları kontrol et
+  bool isPointInErasedArea(Point point) {
+    for (final area in _erasedAreas) {
+      if (area.contains(point.offset)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Silgi ile silinen alanları temizle
+  void clearErasedAreas() {
+    _erasedPoints.clear();
+    _erasedAreas.clear();
+    notifyListeners();
+  }
+
+  // Silgi boyutunu ayarla
+  void setEraserSize(double size) {
+    // Yeni controller oluştur çünkü penStrokeWidth final
+    // Bu fonksiyon çağrıldığında yeni controller oluşturulmalı
+  }
+}
+
+// Özel Signature Widget'ı - Silgi desteği ile
+class EraserSignature extends StatefulWidget {
+  final SignatureController controller;
+  final EraserSignatureController? eraserController;
+  final bool isEraserMode;
+  final Color backgroundColor;
+  final double? width;
+  final double? height;
+
+  const EraserSignature({
+    super.key,
+    required this.controller,
+    this.eraserController,
+    required this.isEraserMode,
+    this.backgroundColor = Colors.white,
+    this.width,
+    this.height,
+  });
+
+  @override
+  State<EraserSignature> createState() => _EraserSignatureState();
+}
+
+class _EraserSignatureState extends State<EraserSignature> {
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // Ana signature widget'ı
+        Signature(
+          controller:
+              widget.isEraserMode
+                  ? widget.eraserController!
+                  : widget.controller,
+          backgroundColor: widget.backgroundColor,
+          width: widget.width,
+          height: widget.height,
+        ),
+        // Silgi modunda görsel geri bildirim
+        if (widget.isEraserMode && widget.eraserController != null)
+          Positioned.fill(
+            child: GestureDetector(
+              onPanUpdate: (details) {
+                // Silgi modunda dokunma olaylarını yakala
+                final point = Point(details.localPosition, PointType.move, 1.0);
+                widget.eraserController!.addErasedPoint(point);
+              },
+              onPanStart: (details) {
+                // Silgi başlangıcı
+                final point = Point(details.localPosition, PointType.tap, 1.0);
+                widget.eraserController!.addErasedPoint(point);
+              },
+              child: CustomPaint(
+                painter: _EraserPainter(widget.eraserController!),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// Silgi görsel geri bildirimi için painter
+class _EraserPainter extends CustomPainter {
+  final EraserSignatureController controller;
+
+  _EraserPainter(this.controller);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint =
+        Paint()
+          ..color = Colors.red.withOpacity(0.3)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2;
+
+    // Silgi alanlarını göster
+    for (final area in controller.erasedAreas) {
+      canvas.drawRect(area, paint);
+    }
+
+    // Silgi noktalarını göster
+    for (final point in controller.erasedPoints) {
+      canvas.drawCircle(point.offset, controller.penStrokeWidth / 2, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 // Kamera ekranı
