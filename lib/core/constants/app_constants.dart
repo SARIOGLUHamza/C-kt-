@@ -1,7 +1,7 @@
 // Uygulama genelinde kullanılan sabitler
 class AppConstants {
   // Uygulama bilgileri
-  static const String appName = 'NoteVault';
+  static const String appName = 'Dijital Defter';
   static const String appVersion = '1.0.0';
 
   // Renkler
@@ -38,9 +38,9 @@ class AppConstants {
   static const String pdfAnnotationsPrefix = 'pdf_annotations';
 
   // Mesajlar
-  static const String noFavoritesMessage = 'Henüz favori hafta eklenmemiş';
+  static const String noFavoritesMessage = 'Henüz favori Bölüm eklenmemiş';
   static const String addCourseHint = 'Ders adını girin';
-  static const String addWeekHint = 'Hafta başlığını girin';
+  static const String addWeekHint = 'Bölüm başlığını girin';
 
   // Hata mesajları
   static const String generalError = 'Bir hata oluştu';

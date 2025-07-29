@@ -774,10 +774,8 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     penStrokeWidth: 2,
     penColor: Colors.black,
   );
-  EraserSignatureController? _eraserController;
   bool _isHandwritingMode = false;
-  bool _isEraserMode = false; // Silgi modu için yeni değişken
-  double _eraserSize = 20.0; // Silgi boyutu
+
   // Kamera sistemi
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
@@ -1107,37 +1105,6 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     }
   }
 
-  // Silgi modunu aç/kapat
-  void _toggleEraserMode() {
-    setState(() {
-      _isEraserMode = !_isEraserMode;
-      if (_isEraserMode) {
-        // Silgi modunda özel silgi controller'ını kullan
-        _eraserController = EraserSignatureController(
-          penStrokeWidth: _eraserSize,
-          penColor: Colors.white,
-        );
-      } else {
-        // Normal modda normal controller'ı kullan
-        _eraserController = null;
-      }
-    });
-  }
-
-  // Silgi boyutunu ayarla
-  void _setEraserSize(double size) {
-    setState(() {
-      _eraserSize = size;
-      if (_isEraserMode && _eraserController != null) {
-        // Yeni controller oluştur çünkü penStrokeWidth final
-        _eraserController = EraserSignatureController(
-          penStrokeWidth: _eraserSize,
-          penColor: Colors.white,
-        );
-      }
-    });
-  }
-
   void _showHandwritingDialog() {
     showDialog(
       context: context,
@@ -1272,14 +1239,29 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
   }
 
   Future<void> _saveAndEmbedHandwriting() async {
-    final controller = _isEraserMode ? _eraserController : _signatureController;
-    if (controller?.isEmpty == true) return;
+    if (_signatureController.isEmpty) {
+      Get.snackbar(
+        'Uyarı',
+        'Kaydedilecek el yazısı bulunamadı',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+      );
+      return;
+    }
 
-    final signature = await controller!.toPngBytes(
-      width: 400,
-      height: 200,
-    ); // Kalite artırıldı
-    if (signature == null) return;
+    final signature = await _signatureController.toPngBytes();
+
+    if (signature == null) {
+      Get.snackbar(
+        'Hata',
+        'El yazısı PNG formatına dönüştürülemedi',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return;
+    }
 
     // PNG'yi 180 derece döndür
     final originalImage = img.decodeImage(signature);
@@ -1305,7 +1287,7 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     // Tıklanabilir el yazısı widget'ı ekle
     _insertFileEmbed(fileName, file.path, 'handwriting');
 
-    controller.clear();
+    _signatureController.clear();
 
     Get.snackbar(
       'Başarılı',
@@ -1680,7 +1662,6 @@ class _WeekDetailScreenState extends State<WeekDetailScreen> {
     _focusNode.dispose();
     _recorder?.closeRecorder();
     _signatureController.dispose();
-    _eraserController?.dispose();
     _cameraController?.dispose();
     super.dispose();
   }
@@ -1708,174 +1689,6 @@ Rect calculateImageRect({
     offsetY = 0;
   }
   return Rect.fromLTWH(offsetX, offsetY, shownWidth, shownHeight);
-}
-
-// Özel Silgi Controller sınıfı
-class EraserSignatureController extends SignatureController {
-  EraserSignatureController({
-    super.penColor = Colors.white,
-    super.penStrokeWidth = 20.0,
-    super.strokeCap = StrokeCap.round,
-    super.strokeJoin = StrokeJoin.round,
-  });
-
-  // Silgi modunda çizilen noktaları takip etmek için
-  List<Point> _erasedPoints = [];
-
-  // Silgi ile silinen alanları takip etmek için
-  List<Rect> _erasedAreas = [];
-
-  // Silgi ile silinen noktaları kaydet
-  void addErasedPoint(Point point) {
-    _erasedPoints.add(point);
-
-    // Silgi alanını hesapla
-    final rect = Rect.fromCenter(
-      center: point.offset,
-      width: penStrokeWidth,
-      height: penStrokeWidth,
-    );
-    _erasedAreas.add(rect);
-
-    // Bu alandaki çizim noktalarını sil
-    _removePointsInArea(rect);
-
-    notifyListeners();
-  }
-
-  // Belirli bir alandaki noktaları sil
-  void _removePointsInArea(Rect area) {
-    value.removeWhere((point) {
-      return area.contains(point.offset);
-    });
-  }
-
-  // Silgi ile silinen noktaları temizle
-  void clearErasedPoints() {
-    _erasedPoints.clear();
-    _erasedAreas.clear();
-    notifyListeners();
-  }
-
-  // Silgi ile silinen noktaları al
-  List<Point> get erasedPoints => _erasedPoints;
-
-  // Silgi ile silinen alanları al
-  List<Rect> get erasedAreas => _erasedAreas;
-
-  // Silgi ile silinen alanları kontrol et
-  bool isPointInErasedArea(Point point) {
-    for (final area in _erasedAreas) {
-      if (area.contains(point.offset)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // Silgi ile silinen alanları temizle
-  void clearErasedAreas() {
-    _erasedPoints.clear();
-    _erasedAreas.clear();
-    notifyListeners();
-  }
-
-  // Silgi boyutunu ayarla
-  void setEraserSize(double size) {
-    // Yeni controller oluştur çünkü penStrokeWidth final
-    // Bu fonksiyon çağrıldığında yeni controller oluşturulmalı
-  }
-}
-
-// Özel Signature Widget'ı - Silgi desteği ile
-class EraserSignature extends StatefulWidget {
-  final SignatureController controller;
-  final EraserSignatureController? eraserController;
-  final bool isEraserMode;
-  final Color backgroundColor;
-  final double? width;
-  final double? height;
-
-  const EraserSignature({
-    super.key,
-    required this.controller,
-    this.eraserController,
-    required this.isEraserMode,
-    this.backgroundColor = Colors.white,
-    this.width,
-    this.height,
-  });
-
-  @override
-  State<EraserSignature> createState() => _EraserSignatureState();
-}
-
-class _EraserSignatureState extends State<EraserSignature> {
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        // Ana signature widget'ı
-        Signature(
-          controller:
-              widget.isEraserMode
-                  ? widget.eraserController!
-                  : widget.controller,
-          backgroundColor: widget.backgroundColor,
-          width: widget.width,
-          height: widget.height,
-        ),
-        // Silgi modunda görsel geri bildirim
-        if (widget.isEraserMode && widget.eraserController != null)
-          Positioned.fill(
-            child: GestureDetector(
-              onPanUpdate: (details) {
-                // Silgi modunda dokunma olaylarını yakala
-                final point = Point(details.localPosition, PointType.move, 1.0);
-                widget.eraserController!.addErasedPoint(point);
-              },
-              onPanStart: (details) {
-                // Silgi başlangıcı
-                final point = Point(details.localPosition, PointType.tap, 1.0);
-                widget.eraserController!.addErasedPoint(point);
-              },
-              child: CustomPaint(
-                painter: _EraserPainter(widget.eraserController!),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-// Silgi görsel geri bildirimi için painter
-class _EraserPainter extends CustomPainter {
-  final EraserSignatureController controller;
-
-  _EraserPainter(this.controller);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint =
-        Paint()
-          ..color = Colors.red.withOpacity(0.3)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2;
-
-    // Silgi alanlarını göster
-    for (final area in controller.erasedAreas) {
-      canvas.drawRect(area, paint);
-    }
-
-    // Silgi noktalarını göster
-    for (final point in controller.erasedPoints) {
-      canvas.drawCircle(point.offset, controller.penStrokeWidth / 2, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 // Kamera ekranı
